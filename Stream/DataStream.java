@@ -15,7 +15,7 @@ import java.util.Properties;
 public class DataStream {
 
     static String KAFKA_BROKERS = "localhost:9092";
-    static String APPLICATION_ID = "application2";
+    static String APPLICATION_ID = "application1";
     static String INPUT_TOPIC="test";
     static String OUTPUT_TOPIC="data";
 
@@ -24,6 +24,7 @@ public class DataStream {
         Properties props = new Properties();
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA_BROKERS);
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, APPLICATION_ID);
+        props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 1000);
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
 
@@ -36,14 +37,7 @@ public class DataStream {
                 .reduce((val1,val2)->val1+val2)
                 .toStream();
 
-//        KStream afterProcess = record
-//                .groupByKey()
-//                .windowedBy(TimeWindows.of(Duration.ofMinutes(1)))
-//                .reduce((val1,val2)->val1+val2)
-//                .toStream();
-
         afterProcess.to(OUTPUT_TOPIC, Produced.with(WindowedSerdes.timeWindowedSerdeFrom(String.class), Serdes.String()));
-        //afterProcess.to(OUTPUT_TOPIC, Produced.with(Serdes.String(), Serdes.String()));
         //Consumer should read <String String>.
 
         KafkaStreams streams = new KafkaStreams(builder.build(), props);
