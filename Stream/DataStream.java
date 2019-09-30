@@ -15,9 +15,9 @@ import java.util.Properties;
 public class DataStream {
 
     static String KAFKA_BROKERS = "localhost:9092";
-    static String APPLICATION_ID = "application1";
-    static String INPUT_TOPIC="test";
-    static String OUTPUT_TOPIC="data";
+    static String APPLICATION_ID = "application";
+    static String INPUT_TOPIC="order";
+    static String OUTPUT_TOPIC="price";
 
     public static void runStream() {
 

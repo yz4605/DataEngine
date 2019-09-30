@@ -3,6 +3,7 @@ package kafka;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.producer.Producer;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -54,7 +55,8 @@ public class OrderProcessor {
     }
 
     public static void calculatePrice(String path) {
-        Consumer consumer = DataConsumer.createConsumer();
+        Producer<String, String> producer = DataProducer.createProducer("localhost:9092","filter");;
+        Consumer consumer = DataConsumer.createConsumer("localhost:9092","price","group");
         TrendStock t = new TrendStock();
         try {
             while(true)
@@ -84,7 +86,7 @@ public class OrderProcessor {
                     content += (timeStamp+","+p[0]+","+price+"\n");
                     streamContent += (p[0]+","+price+","+num+"\n");
                 }
-                t.run(streamContent);
+                t.run(producer,streamContent);
                 writePrice(path,content);
                 //System.out.println(content);
             }
@@ -93,6 +95,7 @@ public class OrderProcessor {
             System.out.println("Write Stock Price Error"+e);
         }
         finally {
+            producer.close();
             consumer.close();
         }
     }

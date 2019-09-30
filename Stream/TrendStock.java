@@ -1,7 +1,10 @@
 package kafka;
 
-import java.util.HashMap;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+
 import java.util.Arrays;
+import java.util.HashMap;
 
 public class TrendStock {
 
@@ -16,13 +19,18 @@ public class TrendStock {
             float[] price = h.get(i);
             if (price[price.length-1] == 0F)
                 continue;
-            if (price[price.length - 1] < price[1]) {
-                removeList[idx++] = i;
-                continue;
+            if (price[price.length - 1] - price[1] > 5) {
+                if (price[price.length - 1] > price[price.length - 2]) {
+                    continue;
+                }
+            } else if(price[price.length - 1] - price[1] < -5) {
+                if (price[price.length - 1] < price[price.length - 2]){
+                    continue;
+                }
             }
-            for (float p : price) {
 
-            }
+            removeList[idx++] = i;
+
         }
         for (int k = 0; k<idx; k++) {
             h.remove(removeList[k]);
@@ -63,20 +71,26 @@ public class TrendStock {
         filter();
     }
 
-    public void run (String content) {
+    public void run (Producer producer, String content) {
         String[] lines = content.split("\n");
         for (String l : lines) {
             String[] s = l.split(",");
             update(s[0],Float.parseFloat(s[1]),Integer.parseInt(s[2]));
         }
-        System.out.println("Trending Stock");
+        String trending = "";
         for (String i : this.trendList.keySet()){
             float[] f = this.trendList.get(i);
-            //System.out.println(i+": "+ Arrays.toString(f));
             if (f[f.length-1] == 0F)
                 continue;
-            System.out.println(i+": "+ Arrays.toString(f));
+            trending += i +","+ Arrays.toString(f)+";";
         }
+        System.out.println(trending);
+        if (trending.length() < 1) {
+            return;
+        }
+        ProducerRecord<String, String> record = new ProducerRecord<String, String>("trend", trending);
+        producer.send(record);
+        producer.flush();
     }
 
 }

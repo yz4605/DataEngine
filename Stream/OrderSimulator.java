@@ -11,16 +11,14 @@ import java.util.stream.IntStream;
 
 public class OrderSimulator {
 
-    static String TOPIC_NAME="test";
-
-    public static void runProducer(Producer producer,String ticker, int low, int high, long order) {
+    public static void runProducer(Producer producer, String topic, String ticker, int low, int high, long order) {
         //final float fixed = (float) ThreadLocalRandom.current().nextInt(low,high) / 20;
         IntStream percent = ThreadLocalRandom.current().ints(low, high).limit(order);
         percent.forEach(x -> {
             float num = 100 + (float) x / 1000;
             //num += fixed;
             String price = String.format("%.4f%n", num);
-            ProducerRecord<String, String> record = new ProducerRecord<String, String>(TOPIC_NAME, '['+ticker+']', price);
+            ProducerRecord<String, String> record = new ProducerRecord<String, String>(topic, '['+ticker+']', price);
             System.out.println('['+ticker+']' + price);
             producer.send(record);
             //RecordMetadata metadata = producer.send(record).get();
@@ -37,15 +35,20 @@ public class OrderSimulator {
     }
 
     public static void startTrade(String path) {
-        Producer<String, String> producer = DataProducer.createProducer();
+        int volume = 0;
+        Producer<String, String> producer = DataProducer.createProducer("localhost:9092","simulator");
         try {
             String symbols = readSymbol(path);
             String[] stockList = symbols.split(",");
             while(true)
             {
                 for (String s : stockList) {
-                    runProducer(producer, s,-100,101,(long)ThreadLocalRandom.current().nextInt(101));
+                    int vol = ThreadLocalRandom.current().nextInt(101);
+                    runProducer(producer,"order" ,s,-100,101,(long)vol);
+                    volume += vol;
                 }
+                System.out.println("Volume: "+volume);
+                volume = 0;
             }
         }
         catch (Exception e){
