@@ -8,10 +8,11 @@ import java.util.HashMap;
 
 public class TrendStock {
 
-    public HashMap<String, float[]> trendList = new HashMap<>();
-    public int limit=5;
+    public HashMap<String, float[]> trendList = new HashMap<>(); //trending list
+    public int limit=5; //number of price records
 
     public void filter() {
+        //only keep trending stocks
         HashMap<String, float[]> h = this.trendList;
         String[] removeList = new String[h.size()];
         int idx = 0;
@@ -19,6 +20,7 @@ public class TrendStock {
             float[] price = h.get(i);
             if (price[price.length-1] == 0F)
                 continue;
+            //only if more than 5% difference and trends continue
             if (price[price.length - 1] - price[1] > 5) {
                 if (price[price.length - 1] > price[price.length - 2]) {
                     continue;
@@ -28,17 +30,15 @@ public class TrendStock {
                     continue;
                 }
             }
-
             removeList[idx++] = i;
-
         }
         for (int k = 0; k<idx; k++) {
             h.remove(removeList[k]);
         }
-
     }
 
     public void update(String symbol, float price, int vol) {
+        //update trending list with new data
         HashMap<String, float[]> h = this.trendList;
         if (h.containsKey(symbol)) {
             int flag = 0;
@@ -64,10 +64,6 @@ public class TrendStock {
             p[1] = price;
             h.put(symbol, p);
         }
-//        System.out.println("Update");
-//        for (String i : this.trendList.keySet()){
-//            System.out.println(i+": "+ Arrays.toString(this.trendList.get(i)));
-//        }
         filter();
     }
 
@@ -84,13 +80,13 @@ public class TrendStock {
                 continue;
             trending += i +","+ Arrays.toString(f)+";";
         }
-        System.out.println(trending);
         if (trending.length() < 1) {
             return;
         }
-        ProducerRecord<String, String> record = new ProducerRecord<String, String>("trend", trending);
+        ProducerRecord<String, String> record = new ProducerRecord<String, String>("trending", trending);
         producer.send(record);
         producer.flush();
+        System.out.println(trending);
     }
 
 }

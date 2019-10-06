@@ -11,13 +11,13 @@ public class App {
         String command = sc.nextLine();
         switch (command) {
             case "1":
-                OrderSimulator.startTrade("stock");
+                OrderSimulator.startTrade("localhost:9092");
                 break;
             case "2":
-                OrderProcessor.calculatePrice("price");
+                OrderProcessor.calculatePrice("localhost:9092");
                 break;
             case "3":
-                DataStream.runStream();
+                DataStream.runStream("localhost:9092");
                 break;
         }
     }

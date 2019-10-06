@@ -1,95 +1,58 @@
-from kafka import KafkaConsumer
+import ast
+import math
 import dash
+import psycopg2
 import dash_core_components as dcc
 import dash_html_components as html
+from collections import Counter
+from dash.exceptions import PreventUpdate
 from dash.dependencies import Input, Output, State, ClientsideFunction
-import ast
-
 
 app = dash.Dash(
     __name__, meta_tags=[{"name": "viewport", "content": "width=device-width"}]
 )
 server = app.server
 
-layout = dict(
-    autosize=True,
-    automargin=True,
-    showlegend=False,
-    margin=dict(l=30, r=30, b=20, t=40),
-    hovermode="closest",
-    plot_bgcolor="#F9F9F9",
-    paper_bgcolor="#F9F9F9",
-    legend=dict(font=dict(size=10), orientation="h"),
-    title="Historical Data", 
-    dragmode="select"
-)
+conn = psycopg2.connect("dbname=tutorial user=postgres")
 
-consumer = KafkaConsumer('trend',group_id='group-trend',bootstrap_servers=['localhost:9092'])
+global_data = {}
 
-trending_list = {
-    "0": ["A",1,10],
-    "1": ["B",2,20],
-    "2": ["C",3,30],
-    "3": ["D",4,40],
-    "4": ["E",5,50],
+global_data["trending"] = {
+    "0": ["stock",0,100],
+    "1": ["stock",0,100],
+    "2": ["stock",0,100],
+    "3": ["stock",0,100],
+    "4": ["stock",0,100],
 }
 
-flag = -1
-
 def updateData():
-    global trending_list
-    # for i in trending_list:
-    #     trending_list[i][1] += 1
-    #     trending_list[i][2] += 10
-    global flag
-    flag += 1
-    if flag < 1:
-        return
-    msg = consumer.poll(10)
-    print("poll")
-    if len(msg) == 0:
-        return 
-    content = msg[list(msg)[0]]
-    trendsList = []
+    global global_data
+    cur = conn.cursor()
+    cur.execute("SELECT msg FROM intervalData ORDER BY id DESC LIMIT 1;")
+    content = cur.fetchone()[0]
+    content = content.split("\n")
     for i in content:
-        s = i.value.decode()
-        trends = s.split(";")
-        for t in trends:
-            if t == '':
-                continue
-            symbolPrice = t.split(",",1)
-            l = ast.literal_eval(symbolPrice[1])
-            l.append(symbolPrice[0])
-        trendsList.append(l)
-    trendsList.sort(key=lambda x:x[0],reverse=True)
-    filterTrends = set()
-    newTrends = {}
-    counter = 0
-    for i in range(len(trendsList)):
-        if trendsList[i][-1] in filterTrends:
+        if i == "":
             continue
-        filterTrends.add(trendsList[i][-1])
-        newTrends[str(counter)] = [trendsList[i][-1],trendsList[i][0],trendsList[i][-2]]
-        counter += 1
-    length = min(len(newTrends),len(trending_list))
-    for i in range(length):
-        trending_list[str(i)] = newTrends[str(i)]
-    print(newTrends)
+        s = i.split("@")
+        global_data[s[0]] = ast.literal_eval(s[1])
     return 
-
 
 def get_color(arg):
     if arg == 100:
         return "black"
     elif arg > 100:
-        return "#45df7e"
+        return "#45b07e"
     else:
         return "#da5657"
-#style={"color": get_color(trending_list[index][2])}
 
 def update_row():
     rows = []
+    trending_list = global_data["trending"]
+    while len(trending_list) < 5:
+        trending_list[str(len(trending_list))] = ["stock",0,100]
     for index in trending_list:
+        p = trending_list[index][2]-100
         row = html.Div(
             children=
             [
@@ -101,11 +64,15 @@ def update_row():
                         html.P(trending_list[index][0], 
                         id=index + "symbol", 
                         className="trend-col", 
-                        style={'display': 'inline-block','width': '50%'}),
+                        style={'display': 'inline-block','width': '33%'}),
                         html.P(trending_list[index][1],
                         id=index + "volume", 
                         className="trend-col",
-                        style={'display': 'inline-block','width': '50%',"color": get_color(trending_list[index][2])})
+                        style={'display': 'inline-block','width': '33%'}),
+                        html.P(str(round(p,2))+" %",
+                        id=index + "percent", 
+                        className="trend-col",
+                        style={'display': 'inline-block','width': '33%',"color": get_color(trending_list[index][2])})
                     ]
                 )
             ]
@@ -114,23 +81,51 @@ def update_row():
     return rows
 
 def update_info():
-    infoes = []
-    for index in trending_list:
-        info = html.Div(
-            [html.H6(trending_list[index][0],id=index+"percent"), html.P("percent: "+str(trending_list[index][2]))],
-            id=index + "info",
+    if "volume" in global_data:
+        volume = global_data["volume"]
+    else:
+        volume = 0
+    if "delayed" in global_data:
+        delay = global_data["delayed"]
+    else:
+        delay = {"stock":100}
+    symbol = list(delay)[0]
+    price = delay[symbol]
+    cols = [
+        html.Div(
+            [html.H6("Total Volume"), html.P(str(volume))],
+            id="volume_info",
             className="mini_container",
             style={'flex': 1},
-        )
-        infoes.append(info)
-    return infoes
+        ),
+        html.Div(
+            [html.H6("Delayed Message"), html.P(symbol+": "+str(price))],
+            id="delay_info",
+            className="mini_container",
+            style={'flex': 1},
+        ),
+        html.Div(
+            [html.H6("Working Nodes"), html.P(3*math.ceil(volume/10000))],
+            id="node_info",
+            className="mini_container",
+            style={'flex': 1},
+        ),
+        html.Div(
+            [html.H6("System Status"), html.P("OK")],
+            id="system_info",
+            className="mini_container",
+            style={'flex': 1},
+        ),        
+    ]
+    return cols
 
-def update_Stream():
+def update_stream():
     updateData()
     return [update_row(),update_info()]
 
 app.layout = html.Div(
     [
+        dcc.Store(id='memory'),
         html.Div(id="output-clientside"),
         html.Div(
             [
@@ -190,11 +185,12 @@ app.layout = html.Div(
                         ),
                         html.Div(
                             children = [
-                                html.P(className="trend-col",children="Symbol",style={'display': 'inline-block','width': '50%'}),
-                                html.P(className="trend-col",children="Volume",style={'display': 'inline-block','width': '50%'}),
+                                html.P(className="trend-col",children="Symbol",style={'display': 'inline-block','width': '33%'}),
+                                html.P(className="trend-col",children="Volume",style={'display': 'inline-block','width': '33%'}),
+                                html.P(className="trend-col",children="Percentage",style={'display': 'inline-block','width': '33%'}),
                                 html.Div(
                                     id="trending-data",
-                                    className="symbol-volume",
+                                    className="trending-data-class",
                                     children=update_row()
                                 ),
                             ],
@@ -219,9 +215,9 @@ app.layout = html.Div(
                         html.P("Select Date Range",className="control_label",),
                         dcc.RangeSlider(
                             id="year_slider",
-                            min=1970,
-                            max=2019,
-                            value=[2000, 2010],
+                            min=0,
+                            max=100,
+                            value=[0, 100],
                             className="dcc_control",
                         ),
                     ],
@@ -261,39 +257,99 @@ app.clientside_callback(
     [Input("count_graph", "figure")],
 )
 
+layout = dict(
+    autosize=True,
+    automargin=True,
+    showlegend=False,
+    margin=dict(l=30, r=30, b=20, t=40),
+    hovermode="closest",
+    plot_bgcolor="#F9F9F9",
+    paper_bgcolor="#F9F9F9",
+    legend=dict(font=dict(size=10), orientation="h"),
+    title="Historical Data", 
+    dragmode="select"
+)
+
 @app.callback(
-    Output("count_graph", "figure"),
-    [Input("industry", "value")],
     [
-        State('date-picker-range', 'start_date'),
-        State('date-picker-range', 'end_date')
+        Output('count_graph', 'figure'),
+        Output('memory', 'data'),
+    ],
+    [
+        Input("industry", "value"),
+        Input('date-picker-range', 'start_date'),
+        Input('date-picker-range', 'end_date'),
     ]
 )
 def make_count_figure(industry,start,end):
+    result=[i for i in range(100)]
+    if industry==None or start == None or end == None:
+        c=["rgb(123, 199, 255)" for i in result]
+        data = [
+            dict(
+                type="bar",
+                x=result,
+                y=result,
+                name="Volatility",
+                marker=dict(color=c),
+            ),
+        ]
+        figure = dict(data=data, layout=layout)
+        raise PreventUpdate
+    cur = conn.cursor()
+    industry = "energy"
+    query = "SELECT * FROM %s WHERE time BETWEEN %%s::timestamp AND %%s::timestamp;" % industry
+    cur.execute(query,(start,end,))
+    result = cur.fetchall()
+    if len(result) > 500:
+        pass #sampling data
+    percent = [i[1]-100 for i in result]
+    datelist = [str(i[0])[:10] for i in result]
+    # import pandas as pd
+    # datelist = pd.to_datetime(datelist)
+    # df = pd.DataFrame()
+    # df["percent"] = percent
+    # df = df.set_index(datelist)
+    # df.index.name = "data"
+    c=["rgb(123, 199, 255)" for i in result]
     data = [
         dict(
             type="bar",
-            x=[i for i in range(1900,1950)],
-            y=[i for i in range(50)],
+            x=datelist,
+            y=percent,
             name="Volatility",
-            marker=dict(color=["rgb(123, 199, 255)" for i in range(50)]),
+            marker=dict(color=c),
         ),
     ]
     figure = dict(data=data, layout=layout)
-    return figure
+    query = "SELECT * FROM %s_max WHERE time BETWEEN %%s::timestamp AND %%s::timestamp;" % industry
+    cur.execute(query,(start,end,))
+    result = cur.fetchall()
+
+    return [figure,result]
 
 
 @app.callback(
     Output("top_stocks", "children"),
     [Input("year_slider", "value")],
-    [
-        State("industry", "value"),
-        State('date-picker-range', 'start_date'),
-        State('date-picker-range', 'end_date')
-    ]
+    [State("memory", "data")]
 )
-def calculate_top(year_slider,industry,start,end):
-    return "Top Stock:"
+def calculate_top(val,memory):
+    if memory == None:
+        raise PreventUpdate
+    l = len(memory)
+    s = math.floor(l*val[0]/100)
+    e = math.floor(l*val[1]/100)
+    filterData = memory[s:e]
+    filterData = [i[2] for i in filterData]
+    c = Counter(filterData)
+    sortCounter = [(c[i],i) for i in c]
+    sortCounter.sort(key=lambda x:x[0],reverse=True)
+    idx = min(5,len(sortCounter))
+    msg = "Top Stock: "
+    for i in sortCounter[:idx]:
+        msg += i[1] + " " + str(i[0]) + " times. "
+    return msg
 
 @app.callback(
     [
@@ -301,9 +357,10 @@ def calculate_top(year_slider,industry,start,end):
         Output("info-container", "children"),
     ],
     [Input("interval", "n_intervals")])
-def update_trending(n):
-    return update_Stream()
+def update_data(n):
+    return update_stream()
+
+update_stream()
 
 if __name__ == "__main__":
-    update_Stream()
     app.run_server(debug=True)
