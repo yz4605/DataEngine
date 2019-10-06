@@ -2,57 +2,23 @@ import pyspark
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as func
 import pyspark.sql.types as types
-import pandas as pd
-
-def getMap(fileName):
-    stocks = pd.read_csv(fileName)
-    stock_sector = pd.Series(stocks.Sector.array,index=stocks.Symbol).to_dict()
-    sector_stock = {}
-    for i in zip(stocks["Symbol"],stocks["Sector"]):
-        if i[1] in sector_stock:
-            sector_stock[i[1]].append(i[0])
-        else:
-            sector_stock[i[1]] = [i[0]]
-    return stock_sector,sector_stock
-
-def getPercent(sym):
-    df = spark.read.csv('data/'+sym+'.csv',header=True)
-    df = df.withColumn("Date",func.concat(df.Date,func.lit(" 00:00:00")))
-    df = df.withColumn("date", df["Date"].cast("timestamp"))
-    df = df.withColumn("Open", df["Open"].cast("float"))
-    df = df.withColumn("Close", df["Close"].cast("float"))
-    df = df.withColumn("Diff", df["Close"]-df["Open"])
-    df = df.withColumn("percent", df["Diff"]/df["Open"])
-    df = df.withColumn("percent", df["percent"]*100+100)
-    df = df.withColumn("percent",func.round(df["percent"],5))
-    df = df.withColumn("symbol",func.lit(sym))
-    df = df.select("date","symbol","percent")
-    df = df.sort("date")
-    return df
 
 def percentByDay(df):
+    #calcualte return by day
     from pyspark.sql.window import Window
     windowspec = Window.orderBy("Date")
     df = df.withColumn("Prev", func.lag(df.Open).over(windowspec))
     df = df.withColumn("Diff", func.when(func.isnull(df.Open - df.Prev), 0).otherwise(df.High - df.Prev))
-    df = df.withColumn("Percent", df.Diff/df.Open)
+    df = df.withColumn("percent", df.Diff/df.Open)
     return df
 
-def joinStock(sector_stock,sector):
-    dflist = []
-    for i in sector_stock[sector]:
-        dflist.append(getPercent(i))
-    df = dflist.pop(0)
-    for i in dflist:
-        df = df.join(i,"Date","outer")
-    return df
-
-def idx_sym(f):
+def idx_sym(hashMap):
     def func(data):
-        return f[data]
+        return hashMap[data]
     return func
 
-def getMax(df):
+def maxCol(df):
+    #get max col in a row
     maxVal = func.udf(lambda x: max(x), types.DoubleType())
     maxIdx = func.udf(lambda x: x.index(x[-1]), types.IntegerType())
     df = df.withColumn("maxVal",maxVal(func.array(df.columns[1:])))
@@ -61,53 +27,97 @@ def getMax(df):
     df = df.withColumn("maxSym",maxSym("maxIdx"))
     return df
 
-def readCurrent(p):
-    df = spark.read.csv(path=p, schema="timestamp TIMESTAMP, symbol STRING, percent FLOAT", timestampFormat="yyyy-MM-dd HH:mm:ss")
+def dataFactory(spark,path,sym):
+    #reformat historical finance data
+    df = spark.read.csv(path,header=True)
+    df = df.withColumn("date",func.concat(df.Date,func.lit(" 00:00:00")))
+    df = df.withColumn("timestamp", df["date"].cast("timestamp"))
+    df = df.withColumn("Open", df["Open"].cast("double"))
+    df = df.withColumn("Close", df["Close"].cast("double"))
+    df = df.withColumn("Diff", df["Close"]-df["Open"])
+    df = df.withColumn("percent", df["Diff"]/df["Open"])
+    df = df.withColumn("percent", df["percent"]*100+100)
+    df = df.withColumn("percent",func.round(df["percent"],5))
+    df = df.withColumn("symbol",func.lit(sym))
+    df = df.select("timestamp","symbol","percent")
+    df = df.sort("timestamp")
     return df
+
+def writeHistorical(spark,stock_sector,config):
+    #save data
+    for i in stock_sector:
+        s = i.upper()
+        df = dataFactory(spark,config['path']['s3']+"/data/"+s+".csv",s)
+        df.write.csv(config['path']['s3']+'/new/'+s,header=True,timestampFormat="yyyy-MM-dd HH:mm:ss")
 
 def sectorWrap(data):
     def func(arg):
-        return arg in data
+        return arg.upper() in data
     return func
 
-def filterStock(sectorSet)
+def filterStock(df,sectorSet):
+    #filter by industry
     sector = func.udf(sectorWrap(sectorSet),types.BooleanType())
     df_filter = df.filter(sector(df.symbol))
+    return df_filter
 
-def getTop(df):
+def getMax(df):
+    #top stock with the same timestamp
     df_max = df.groupBy("timestamp").max("percent")
     df_max = df_max.withColumnRenamed("max(percent)","percent")
-    df_top = df.join(df_max,["timestamp","percent"])
+    df_max = df.join(df_max,["timestamp","percent"])
+    return df_max
 
 def getAvg(df):
+    #aggregate the industry
     df_avg = df.groupBy("timestamp").avg("percent")
     df_avg = df_avg.withColumnRenamed("avg(percent)","percent")
+    return df_avg
 
+def getVol(df):
+    #get volatility by day
+    df_std = df.agg(func.stddev_samp(df.percent))
+    df_std = df_std.withColumnRenamed("stddev_samp(percent)","volatility")
+    return df_std
 
-# def m(line):
-#     s = line.split(',')
-#     return (s[0],s[1]+','+s[2])
+def getTop(df):
+    #get top stock by day
+    df_count = df.groupBy("symbol").count()
+    top = df_count.groupBy().max("count").collect()[0][0]
+    df_top = df_count.filter(df_count["count"] == top)
+    return df_top
 
-# sc = spark.sparkContext
-# text_file = sc.textFile('price')
-# counts = text_file.map(m).reduceByKey(lambda a, b: a +';'+ b)
-# counts.sortByKey()
+def process(df,sector):
+    #call all functions
+    df = filterStock(df,sector)
+    df_max = getMax(df)
+    top = getTop(df_max).collect()[0][0]
+    df_avg = getAvg(df)
+    vol = getVol(df_avg).collect()[0][0]
+    return top,vol
 
-stock_sector,sector_stock = getMap("stock.csv")
-spark = SparkSession.builder.appName("SimpleApp").getOrCreate()
+def main():
+    import ast
+    import configparser
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+    spark = SparkSession.builder.appName("SimpleApp").getOrCreate()
+    spark.sparkContext.setLogLevel("ERROR")
+    spark.sparkContext._jsc.hadoopConfiguration().set('fs.s3a.access.key', config['s3']['fs.s3a.access.key'])
+    spark.sparkContext._jsc.hadoopConfiguration().set('fs.s3a.secret.key',config['s3']['fs.s3a.secret.key'])
+    # spark.sparkContext._jsc.hadoopConfiguration().set('fs.s3a.impl','org.apache.hadoop.fs.s3a.S3AFileSystem')
+    sector_stock = config['sector_stock']
+    sectors = {}
+    for i in sector_stock:
+        sectors[i] = ast.literal_eval(sector_stock[i])
+    df = spark.read.csv(path=config['path']['s3']+"/spark/*", header=True, schema="timestamp TIMESTAMP, symbol STRING, percent DOUBLE", timestampFormat="yyyy-MM-dd HH:mm:ss")
+    df = df.na.drop()
+    for i in sectors:
+        top,vol = process(df,sectors[i])
+        print("Top: "+str(top)+" Volatility: "+str(vol))
 
-for i in sector_stock:
-    df = joinStock(sector_stock,i)
-    print("Show\n")
-    df = getMax(df)
-    print(df.show(n=10))
-    print("Done\n")
+    spark.stop()
+    
 
-# df = joinStock(sector_stock,'Telecommunication Services')
-# df = getMax(df)
-# print(df.show(n=100))
-
-
-spark.stop()
-#export PYSPARK_PYTHON=python3
-#spark/bin/spark-submit --master local[*] --driver-memory 8g --executor-memory 8g run.py
+if __name__ == "__main__":
+    main()
