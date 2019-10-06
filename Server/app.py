@@ -1,10 +1,13 @@
 import ast
 import math
+import copy
 import dash
 import psycopg2
+import configparser
 import dash_core_components as dcc
 import dash_html_components as html
 from collections import Counter
+from datetime import datetime as dt
 from dash.exceptions import PreventUpdate
 from dash.dependencies import Input, Output, State, ClientsideFunction
 
@@ -13,7 +16,14 @@ app = dash.Dash(
 )
 server = app.server
 
-conn = psycopg2.connect("dbname=tutorial user=postgres")
+conn = psycopg2.connect("dbname=app user=postgres")
+
+config = configparser.ConfigParser()
+config.read('config.ini')
+sectors = config['stock_sector']
+industries = config['sector_stock']
+industries = [{'label': i, 'value': i} for i in industries]
+
 
 global_data = {}
 
@@ -27,8 +37,9 @@ global_data["trending"] = {
 
 def updateData():
     global global_data
+    previous_t = copy.deepcopy(global_data["trending"])
     cur = conn.cursor()
-    cur.execute("SELECT msg FROM intervalData ORDER BY id DESC LIMIT 1;")
+    cur.execute("SELECT msg FROM buffer ORDER BY id DESC LIMIT 1;")
     content = cur.fetchone()[0]
     content = content.split("\n")
     for i in content:
@@ -36,6 +47,11 @@ def updateData():
             continue
         s = i.split("@")
         global_data[s[0]] = ast.literal_eval(s[1])
+    t = list(global_data["trending"])
+    l = min(len(t),len(previous_t))
+    for i in range(l):
+        previous_t[str(i)] = global_data["trending"][t[i]]
+    global_data["trending"] = previous_t
     return 
 
 def get_color(arg):
@@ -46,12 +62,33 @@ def get_color(arg):
     else:
         return "#da5657"
 
+nodeconfig = 0
+buffer = 0
+def getNodes(vol):
+    global nodeconfig
+    global buffer
+    node = 3*math.ceil(vol/10000)
+    if node > nodeconfig:
+        nodeconfig = node
+        buffer = 2
+    elif node < nodeconfig:
+        if buffer > 0:
+            buffer -= 1
+        else:
+            nodeconfig = node
+
+
 def update_row():
     rows = []
     trending_list = global_data["trending"]
-    while len(trending_list) < 5:
-        trending_list[str(len(trending_list))] = ["stock",0,100]
+    # while len(trending_list) < 5:
+    #     trending_list[str(len(trending_list))] = copy.deepcopy(previous_t[str(len(trending_list))])
     for index in trending_list:
+        symbol = trending_list[index][0]
+        if symbol == "stock":
+            industry = "Standard & Poor's Depositary Receipts"
+        else:
+            industry = sectors[symbol.lower()]
         p = trending_list[index][2]-100
         row = html.Div(
             children=
@@ -65,16 +102,17 @@ def update_row():
                         id=index + "symbol", 
                         className="trend-col", 
                         style={'display': 'inline-block','width': '33%'}),
-                        html.P(trending_list[index][1],
+                        html.P(str(trending_list[index][1])+"K",
                         id=index + "volume", 
                         className="trend-col",
                         style={'display': 'inline-block','width': '33%'}),
-                        html.P(str(round(p,2))+" %",
+                        html.P(str(round(p,2))+"%",
                         id=index + "percent", 
                         className="trend-col",
                         style={'display': 'inline-block','width': '33%',"color": get_color(trending_list[index][2])})
                     ]
-                )
+                ),
+                html.P(industry,style={'color':'#5d5d60'}),
             ]
         )
         rows.append(row)
@@ -85,33 +123,41 @@ def update_info():
         volume = global_data["volume"]
     else:
         volume = 0
+    delaymsg = "None"
+    n1 = nodeconfig
+    getNodes(volume)
+    nodes = nodeconfig
+    if nodes > n1:
+        sysMsg = "Expanding nodes"
+    else:
+        sysMsg = "OK"
     if "delayed" in global_data:
         delay = global_data["delayed"]
-    else:
-        delay = {"stock":100}
-    symbol = list(delay)[0]
-    price = delay[symbol]
+        if delay != None:
+            symbol = list(delay)[0]
+            price = round(float(delay[symbol])-100,2)
+            delaymsg = str(symbol) + ": " + str(price) + "%"
     cols = [
         html.Div(
-            [html.H6("Total Volume"), html.P(str(volume))],
-            id="volume_info",
+            [html.H6("Total Traffic"), html.P(str(volume))],
+            id="traffic_info",
             className="mini_container",
             style={'flex': 1},
         ),
         html.Div(
-            [html.H6("Delayed Message"), html.P(symbol+": "+str(price))],
+            [html.H6("Delayed Message"), html.P(delaymsg)],
             id="delay_info",
             className="mini_container",
             style={'flex': 1},
         ),
         html.Div(
-            [html.H6("Working Nodes"), html.P(3*math.ceil(volume/10000))],
+            [html.H6("Working Nodes"), html.P(nodes)],
             id="node_info",
             className="mini_container",
             style={'flex': 1},
         ),
         html.Div(
-            [html.H6("System Status"), html.P("OK")],
+            [html.H6("System Status"), html.P(sysMsg)],
             id="system_info",
             className="mini_container",
             style={'flex': 1},
@@ -196,23 +242,23 @@ app.layout = html.Div(
                             ],
                             className="control_label"
                         ),
-                        html.P("Choose Date Range:", className="control_label"),
+                        html.P("Date Calendar for Graph:", className="control_label"),
                         dcc.DatePickerRange(
                             id='date-picker-range',
-                            start_date_placeholder_text='Start date',
-                            end_date_placeholder_text='End date',
+                            start_date=dt(2018,10,1),
+                            end_date=dt(2019,10,1),
                             style={'border': 0},
                             className="dcc_control",
                         ),
-                        html.P("Filter by industry:", className="control_label"),
+                        html.P("Industry Sector for Graph:", className="control_label"),
                         dcc.Dropdown(
                             id="industry",
-                            options=[{'label': 'Technology', 'value': 'NYC'}],
+                            options=industries,
                             #multi=True,
-                            value="NYC",
+                            value="industrials",
                             className="dcc_control",
                         ),
-                        html.P("Select Date Range",className="control_label",),
+                        html.P("Time Range for Top Stock",className="control_label",),
                         dcc.RangeSlider(
                             id="year_slider",
                             min=0,
@@ -237,8 +283,14 @@ app.layout = html.Div(
                             id="countGraphContainer",
                             className="pretty_container",
                         ),
-                        html.Br(),
-                        html.P("Top Stock: ",id="top_stocks",className="pretty_container",)
+                        #html.Br(),
+                        html.Div(
+                            [
+                                html.P("Top Stock: ", style={"font-weight":"bold","font-size":"150%"}),
+                                html.P("Please adjust time range slider", id="top_stocks")
+                            ],
+                            className="pretty_container",
+                        ),
                     ],
                     id="right-column",
                     className="eight columns",
@@ -266,7 +318,7 @@ layout = dict(
     plot_bgcolor="#F9F9F9",
     paper_bgcolor="#F9F9F9",
     legend=dict(font=dict(size=10), orientation="h"),
-    title="Historical Data", 
+    title="Historical Volatility", 
     dragmode="select"
 )
 
@@ -297,7 +349,6 @@ def make_count_figure(industry,start,end):
         figure = dict(data=data, layout=layout)
         raise PreventUpdate
     cur = conn.cursor()
-    industry = "energy"
     query = "SELECT * FROM %s WHERE time BETWEEN %%s::timestamp AND %%s::timestamp;" % industry
     cur.execute(query,(start,end,))
     result = cur.fetchall()
@@ -322,7 +373,7 @@ def make_count_figure(industry,start,end):
         ),
     ]
     figure = dict(data=data, layout=layout)
-    query = "SELECT * FROM %s_max WHERE time BETWEEN %%s::timestamp AND %%s::timestamp;" % industry
+    query = "SELECT * FROM %s_top WHERE time BETWEEN %%s::timestamp AND %%s::timestamp;" % industry
     cur.execute(query,(start,end,))
     result = cur.fetchall()
 
@@ -346,7 +397,7 @@ def calculate_top(val,memory):
     sortCounter = [(c[i],i) for i in c]
     sortCounter.sort(key=lambda x:x[0],reverse=True)
     idx = min(5,len(sortCounter))
-    msg = "Top Stock: "
+    msg = ""
     for i in sortCounter[:idx]:
         msg += i[1] + " " + str(i[0]) + " times. "
     return msg
