@@ -35,10 +35,11 @@ global_data["trending"] = {
     "4": ["stock",0,100],
 }
 
+cur = conn.cursor()
+
 def updateData():
     global global_data
     previous_t = copy.deepcopy(global_data["trending"])
-    cur = conn.cursor()
     cur.execute("SELECT msg FROM buffer ORDER BY id DESC LIMIT 1;")
     content = cur.fetchone()[0]
     content = content.split("\n")
@@ -82,7 +83,7 @@ def update_row():
     rows = []
     trending_list = global_data["trending"]
     # while len(trending_list) < 5:
-    #     trending_list[str(len(trending_list))] = copy.deepcopy(previous_t[str(len(trending_list))])
+    #     trending_list[str(len(trending_list))] = ["stock",0,100]
     for index in trending_list:
         symbol = trending_list[index][0]
         if symbol == "stock":

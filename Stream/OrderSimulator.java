@@ -1,4 +1,4 @@
-package kafka;
+package stream;
 
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -28,8 +28,8 @@ public class OrderSimulator {
             //RecordMetadata metadata = producer.send(record).get();
         });
         //send delayed message
-        ProducerRecord<String, String> record = new ProducerRecord<String, String>(topic, '['+ticker+']', "80.1@2019-10-01 00:00:00\n");
-        producer.send(record);
+        //ProducerRecord<String, String> record = new ProducerRecord<String, String>(topic, '['+ticker+']', "90.0@2019-10-01 00:00:00\n");
+        //producer.send(record);
         producer.flush();
     }
 
@@ -52,7 +52,7 @@ public class OrderSimulator {
             while(true)
             {
                 for (String s : stockList) {
-                    int vol = ThreadLocalRandom.current().nextInt(101);
+                    int vol = ThreadLocalRandom.current().nextInt(5);
                     runProducer(producer,"order" ,s,-100,101,(long)vol);
                     volume += vol;
                 }

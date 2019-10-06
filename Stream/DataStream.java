@@ -1,4 +1,4 @@
-package kafka;
+package stream;
 
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;

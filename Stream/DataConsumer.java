@@ -1,4 +1,4 @@
-package kafka;
+package stream;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
