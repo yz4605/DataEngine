@@ -1,3 +1,4 @@
+import os
 import ast
 import time
 import psycopg2
@@ -41,7 +42,14 @@ def updateTrend():
         msg = "trending@" + str(newTrends) + "\n"
     return msg
 
+def elastic():
+    cmd = "nohup ./elastic.sh &"
+    os.system(cmd)
+
+peak_v = 10000
+
 def updateMetric():
+    global peak_v
     msg = metric.poll(100,10)
     if len(msg) == 0:
         return ""
@@ -61,6 +69,9 @@ def updateMetric():
                 symbolPrice = t.split(",",1)
                 delayedList[symbolPrice[0]] = symbolPrice[1]
     msg = ""
+    if volume > peak_v:
+        elastic()
+        peak_v = peak_v + 10000
     if volume > 0:
         msg += "volume@" + str(volume) + "\n"
     if len(delayedList) > 0:
