@@ -4,9 +4,9 @@ import configparser
 conn = psycopg2.connect("dbname=app user=postgres")
 cur = conn.cursor()
 
-buffer = "CREATE TABLE buffer (id SERIAL PRIMARY KEY, msg text);"
-cur.execute(buffer)
-conn.commit()
+# buffer = "CREATE TABLE buffer (id SERIAL PRIMARY KEY, msg text);"
+# cur.execute(buffer)
+# conn.commit()
 
 config = configparser.ConfigParser()
 config.read('config.ini')

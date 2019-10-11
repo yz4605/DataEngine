@@ -1,6 +1,5 @@
 import ast
 import math
-import copy
 import dash
 import psycopg2
 import configparser
@@ -35,12 +34,10 @@ global_data["trending"] = {
     "4": ["stock",0,100],
 }
 
-cur = conn.cursor()
-
 def updateData():
     global global_data
-    previous_t = copy.deepcopy(global_data["trending"])
-    cur.execute("SELECT msg FROM buffer ORDER BY id DESC LIMIT 1;")
+    cur = conn.cursor()
+    cur.execute("SELECT msg FROM interval ORDER BY id DESC LIMIT 1;")
     content = cur.fetchone()[0]
     content = content.split("\n")
     for i in content:
@@ -48,11 +45,7 @@ def updateData():
             continue
         s = i.split("@")
         global_data[s[0]] = ast.literal_eval(s[1])
-    t = list(global_data["trending"])
-    l = min(len(t),len(previous_t))
-    for i in range(l):
-        previous_t[str(i)] = global_data["trending"][t[i]]
-    global_data["trending"] = previous_t
+    cur.close()
     return 
 
 def get_color(arg):
@@ -63,21 +56,13 @@ def get_color(arg):
     else:
         return "#da5657"
 
-nodeconfig = 0
-buffer = 0
-def getNodes(vol):
-    global nodeconfig
-    global buffer
-    node = 3*math.ceil(vol/10000)
-    if node > nodeconfig:
-        nodeconfig = node
-        buffer = 2
-    elif node < nodeconfig:
-        if buffer > 0:
-            buffer -= 1
-        else:
-            nodeconfig = node
-
+def getNodes(vol,n1):
+    node = 3*math.ceil(vol/30000)
+    node1 = 3*math.ceil(n1/30000)
+    nodeconfig = node
+    if node < node1:
+        nodeconfig = node1
+    return nodeconfig,node1
 
 def update_row():
     rows = []
@@ -103,7 +88,7 @@ def update_row():
                         id=index + "symbol", 
                         className="trend-col", 
                         style={'display': 'inline-block','width': '33%'}),
-                        html.P(str(trending_list[index][1])+"K",
+                        html.P(str(trending_list[index][1]/10)+"M",
                         id=index + "volume", 
                         className="trend-col",
                         style={'display': 'inline-block','width': '33%'}),
@@ -119,16 +104,14 @@ def update_row():
         rows.append(row)
     return rows
 
-def update_info():
+def update_info(n):
     if "volume" in global_data:
         volume = global_data["volume"]
     else:
         volume = 0
     delaymsg = "None"
-    n1 = nodeconfig
-    getNodes(volume)
-    nodes = nodeconfig
-    if nodes > n1:
+    nodes,node1 = getNodes(volume,n)
+    if nodes > node1:
         sysMsg = "Expanding nodes"
     else:
         sysMsg = "OK"
@@ -164,15 +147,19 @@ def update_info():
             style={'flex': 1},
         ),        
     ]
-    return cols
+    return cols,volume
 
-def update_stream():
+def update_stream(n=None):
+    if n == None:
+        n = 1
     updateData()
-    return [update_row(),update_info()]
+    val = update_info(n)
+    return [update_row(),val[0],val[1]]
 
 app.layout = html.Div(
     [
         dcc.Store(id='memory'),
+        dcc.Store(id='n1'),
         html.Div(id="output-clientside"),
         html.Div(
             [
@@ -275,7 +262,7 @@ app.layout = html.Div(
                     children=
                     [
                         html.Div(
-                            children=update_info(),
+                            children=update_info(1)[0],
                             id="info-container",
                             className="row container-display",
                         ),
@@ -327,6 +314,7 @@ layout = dict(
     [
         Output('count_graph', 'figure'),
         Output('memory', 'data'),
+        Output('year_slider','value'),
     ],
     [
         Input("industry", "value"),
@@ -335,6 +323,7 @@ layout = dict(
     ]
 )
 def make_count_figure(industry,start,end):
+    connT = psycopg2.connect("dbname=app user=postgres")
     result=[i for i in range(100)]
     if industry==None or start == None or end == None:
         c=["rgb(123, 199, 255)" for i in result]
@@ -349,7 +338,7 @@ def make_count_figure(industry,start,end):
         ]
         figure = dict(data=data, layout=layout)
         raise PreventUpdate
-    cur = conn.cursor()
+    cur = connT.cursor()
     query = "SELECT * FROM %s WHERE time BETWEEN %%s::timestamp AND %%s::timestamp;" % industry
     cur.execute(query,(start,end,))
     result = cur.fetchall()
@@ -377,8 +366,9 @@ def make_count_figure(industry,start,end):
     query = "SELECT * FROM %s_top WHERE time BETWEEN %%s::timestamp AND %%s::timestamp;" % industry
     cur.execute(query,(start,end,))
     result = cur.fetchall()
-
-    return [figure,result]
+    cur.close()
+    connT.close()
+    return [figure,result,[0,100]]
 
 
 @app.callback(
@@ -407,12 +397,14 @@ def calculate_top(val,memory):
     [
         Output("trending-data", "children"),
         Output("info-container", "children"),
+        Output("n1", "data"),
     ],
-    [Input("interval", "n_intervals")])
-def update_data(n):
-    return update_stream()
+    [Input("interval", "n_intervals")],
+    [State("n1", "data")])
+def update_data(_,n):
+    return update_stream(n)
 
 update_stream()
 
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run_server(debug=False)

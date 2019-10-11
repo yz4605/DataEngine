@@ -10,7 +10,7 @@ metric = KafkaConsumer('monitor',group_id='web-metric',bootstrap_servers=['local
 delays = KafkaProducer(bootstrap_servers=['localhost:9092'])
 
 def updateTrend():
-    msg = trending.poll(100,10)
+    msg = trending.poll(100,100)
     if len(msg) == 0:
         return ""
     content = msg[list(msg)[0]]
@@ -50,7 +50,7 @@ peak_v = 10000
 
 def updateMetric():
     global peak_v
-    msg = metric.poll(100,10)
+    msg = metric.poll(100,100)
     if len(msg) == 0:
         return ""
     content = msg[list(msg)[0]]
